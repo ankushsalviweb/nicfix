@@ -1,0 +1,12 @@
+# Build artifacts
+*.exe
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
