@@ -952,8 +952,8 @@ $window.FindName("btnHighPerformance").Add_Click({
 # --- Driver Operations ---
 $window.FindName("btnReinstallDriver").Add_Click({
         $result = [System.Windows.MessageBox]::Show(
-            "This will UNINSTALL your Wi-Fi driver and reinstall it.`n`nYour Wi-Fi will disconnect for about 30 seconds while Windows reinstalls the driver.`n`nContinue?",
-            "Confirm Driver Reinstall",
+            "This will COMPLETELY REMOVE your Wi-Fi driver and all its files.`n`nWindows will reinstall a fresh copy from scratch.`n`nYour Wi-Fi will disconnect for 30-60 seconds.`n`nContinue?",
+            "Confirm Complete Driver Wipe",
             [System.Windows.MessageBoxButton]::YesNo,
             [System.Windows.MessageBoxImage]::Warning
         )
@@ -966,25 +966,44 @@ $window.FindName("btnReinstallDriver").Add_Click({
                     if ($pnpDevice) {
                         $instanceId = $pnpDevice.InstanceId
                         
-                        # Uninstall the device using pnputil (this removes the driver too)
-                        $uninstallResult = pnputil /remove-device $instanceId 2>&1
-                        Write-Log "Uninstalling device: $instanceId" "INFO"
+                        Write-Log "Finding driver package for: $($adapter.InterfaceDescription)" "INFO"
                         
-                        Start-Sleep -Seconds 5
+                        # Get the driver INF name for complete removal
+                        $driverInfo = Get-PnpDeviceProperty -InstanceId $instanceId -KeyName "DEVPKEY_Device_DriverInfPath" -ErrorAction SilentlyContinue
+                        $infName = $driverInfo.Data
                         
-                        # Scan for hardware changes to reinstall
-                        $scanResult = pnputil /scan-devices 2>&1
-                        Write-Log "Scanning for devices..." "INFO"
-                        
-                        Start-Sleep -Seconds 10
-                        
-                        # Check if adapter came back
-                        $newAdapter = Get-WiFiAdapter
-                        if ($newAdapter) {
-                            return "Driver reinstalled! Adapter '$($newAdapter.Name)' is back online."
+                        if ($infName) {
+                            Write-Log "Driver INF: $infName - Performing complete wipe..." "INFO"
+                            
+                            # Delete the driver package completely (like checkbox "Attempt to remove the driver for this device")
+                            $deleteResult = pnputil /delete-driver $infName /uninstall /force 2>&1
+                            Write-Log "Driver package removal initiated" "INFO"
+                            
+                            Start-Sleep -Seconds 8
+                            
+                            # Scan for hardware changes to trigger fresh driver install
+                            pnputil /scan-devices 2>&1 | Out-Null
+                            Write-Log "Scanning for devices to reinstall driver..." "INFO"
+                            
+                            Start-Sleep -Seconds 15
+                            
+                            # Check if adapter came back
+                            $newAdapter = Get-WiFiAdapter
+                            if ($newAdapter) {
+                                return "Driver completely reinstalled! '$($newAdapter.Name)' is back with fresh driver."
+                            }
+                            else {
+                                return "Driver removed. Windows is reinstalling - please wait 30 seconds."
+                            }
                         }
                         else {
-                            return "Driver uninstalled. Windows may take a moment to reinstall it automatically."
+                            # Fallback: use device removal if can't get INF
+                            Write-Log "Could not find INF, using device removal..." "WARNING"
+                            pnputil /remove-device $instanceId 2>&1 | Out-Null
+                            Start-Sleep -Seconds 5
+                            pnputil /scan-devices 2>&1 | Out-Null
+                            Start-Sleep -Seconds 10
+                            return "Device reinstalled (fallback method)"
                         }
                     }
                 }
